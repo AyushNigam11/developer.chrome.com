@@ -1,19 +1,16 @@
 const fs = require('fs').promises;
 const path = require('path');
-const glob = require('glob');
+const { promisify } = require('util');
+const glob = promisify(require('glob'));
 const childProcess = require('child_process');
 const crypto = require('crypto');
 const syncTestdata = require('./lib/sync-testdata');
 
 async function run() {
-  let errors = 0;
-
-  const scripts = glob.sync('build/*.js', { cwd: __dirname }).sort();
-
-  const projectRoot = path.join(__dirname, '..');
-  const dataTarget = path.join(__dirname, 'data');
-
   try {
+    const projectRoot = path.join(__dirname, '..');
+    const dataTarget = path.join(__dirname, 'data');
+
     await fs.rmdir(dataTarget, { recursive: true });
     await fs.mkdir(dataTarget, { recursive: true });
 
@@ -23,6 +20,14 @@ async function run() {
     }
 
     const options = { cwd: projectRoot, stdio: 'inherit' };
+    const scripts = (await glob('build/*.js', { cwd: __dirname })).sort();
+
+    const hash = crypto.createHash('sha256');
+    const allFiles = (await glob('data/**/*', { cwd: __dirname })).sort();
+
+    if (!allFiles.length) {
+      throw new Error('No files generated, cowardly refusing to hash');
+    }
 
     for (const script of scripts) {
       const scriptPath = path.join(__dirname, script);
@@ -31,15 +36,7 @@ async function run() {
         childProcess.execFileSync('node', [scriptPath], options);
       } catch (e) {
         console.error(`! Failed to execute "${script}" (${e.status}):`, e.message);
-        ++errors;
       }
-    }
-
-    const hash = crypto.createHash('sha256');
-    const allFiles = glob.sync('data/**/*', { cwd: __dirname }).sort();
-
-    if (!allFiles.length) {
-      throw new Error('No files generated, cowardly refusing to hash');
     }
 
     for (const f of allFiles) {
@@ -54,10 +51,6 @@ async function run() {
 
   } catch (err) {
     console.error('An error occurred:', err);
-    ++errors;
-  }
-
-  if (errors) {
     process.exitCode = 1;
   }
 
